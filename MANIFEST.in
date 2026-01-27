@@ -1,0 +1,5 @@
+include *.py
+include requirements.txt
+include README.md
+recursive-include unitree_description *
+recursive-include joyconrobotics *

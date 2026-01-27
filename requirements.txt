@@ -1,0 +1,19 @@
+# 核心依赖
+numpy>=1.17.4
+scipy
+matplotlib
+
+# 硬件通讯与手柄驱动
+hidapi
+hid==1.0.4
+pyglm
+
+# 仿真环境
+mujoco>=3.0.0
+
+
+# 其他工具库
+ansitable
+progress
+typing_extensions
+ipykernel
