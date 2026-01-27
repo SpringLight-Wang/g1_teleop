@@ -1,4 +1,5 @@
 # Created by [ Wang chunguang - Henan University of Technology] 
+
 import sys
 import time
 import numpy as np
@@ -60,3 +61,4 @@ class JoyConHandlerDual:
             "left": self._read(self.jc_l, "L"),
             "right": self._read(self.jc_r, "R")
         }
+
