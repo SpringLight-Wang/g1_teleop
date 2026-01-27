@@ -5,10 +5,10 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey)]()
 [![Hardware](https://img.shields.io/badge/Hardware-Unitree_G1-orange)](https://www.unitree.com/)
 
-这是一个针对 **Unitree G1 人形机器人** 的开源遥控操作项目。通过使用一对 **Nintendo Joy-Con 手柄**，您可以直观地通过逆运动学 (IK) 和体感 (IMU) 控制机器人的双臂。🇨🇳 
+这是一个针对 **Unitree G1 人形机器人** 的开源遥控操作项目。通过使用一对 **Nintendo Joy-Con 手柄**，可以直观地通过逆运动学 (IK) 和体感 (IMU) 控制机器人的双臂。🇨🇳 
 
 **核心特性：混合控制 (Hybrid Control)**
-本程序允许您**使用 Python 脚本控制上半身动作，同时保留使用 Unitree 官方遥控器控制机器人行走的能力**。
+本程序允许**使用 Python 脚本控制上半身动作，同时保留使用 Unitree 官方遥控器控制机器人行走的能力**。
 
 ![Demo](assets/demo_real.gif)
 
@@ -83,7 +83,7 @@ git clone https://github.com/unitreerobotics/unitree_sdk2_python.git
 cd unitree_sdk2_python
 pip3 install -e .
 ```
-*注意：请确保您已经正确安装并配置了 `unitree_sdk2py` 环境变量。*
+*注意：请确保已经正确安装并配置了 `unitree_sdk2py` 环境变量。*
 
 ## 🚀 使用教程
 
@@ -117,7 +117,7 @@ python g1_dual_mujoco.py
 
 ### 2. 真机混合控制
 
-该模式下，脚本控制上半身，您可以使用官方遥控器控制机器人行走。
+该模式下，脚本控制上半身，可以使用官方遥控器控制机器人行走。
 
 ```bash
 # 语法: python g1_dual_real.py [网卡名称]
@@ -135,7 +135,7 @@ python g1_dual_real.py eth0
 4. **解锁控制**：
 * 按下 **左手柄 ZL** -> 解锁左臂。
 * 按下 **右手柄 ZR** -> 解锁右臂。
-5. **移动机器人**：此时您可以一边挥动手臂，一边用官方遥控器让机器人走路。
+5. **移动机器人**：此时可以一边挥动手臂，一边用官方遥控器让机器人走路。
 
 ## 📂 项目结构
 
@@ -188,4 +188,5 @@ g1_teleop/
 ---
 
 *Created by [ Wang chunguang - Henan University of Technology 🇨🇳 ]*
+
 
