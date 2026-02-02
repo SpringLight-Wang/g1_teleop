@@ -4,6 +4,7 @@ import sys
 import threading
 import numpy as np
 import signal
+import math
 
 try:
     from unitree_sdk2py.core.channel import ChannelPublisher, ChannelSubscriber, ChannelFactoryInitialize
@@ -14,7 +15,6 @@ try:
 except ImportError as e:
     print(f"❌ 导入错误: {e}")
     sys.exit(1)
-
 
 try:
     from joycon_driver_dual import JoyConHandlerDual
@@ -28,31 +28,33 @@ NETWORK_INTERFACE = sys.argv[1] if len(sys.argv) > 1 else "eth0"
 TOPIC_ARM_SDK = "rt/arm_sdk" 
 TOPIC_LOWSTATE = "rt/lowstate"
 
-DT = 0.02
-JOINT_SPEED = 0.005
+DT = 0.005
+JOYSTICK_SENSITIVITY = 0.005 
 DEADZONE = 0.08
+
+SPEED_LIMIT_ARM = 2.0
+SPEED_LIMIT_WRIST = 12.0
+
 ARM_KP = 60.0    
 ARM_KD = 1.5    
 ARM_SDK_FLAG_INDEX = 29 
 
-# [姿态映射参数]
 ELBOW_SCALE = -1.5
 ELBOW_OFFSET = 0.5
-WRIST_OFFSET_L = 0.0 
-WRIST_OFFSET_R = 0.0
-WRIST_SCALE = 1.5
 SH_YAW_SCALE = 0.8  
 
-# [安全复位/锁定姿态]
+WRIST_OFFSET_L = 0.0 
+WRIST_OFFSET_R = 0.0
+WRIST_SCALE = 1.5  
+
 RESET_POSE = {
     "sh_pitch": 0.0,
     "sh_roll": 0.0, 
     "sh_yaw": 0.0,
-    "elbow": ELBOW_OFFSET, 
-    "wrist_roll": 0.0
+    "elbow": ELBOW_OFFSET,
+    "wrist_roll": 0.0 
 }
 
-# [关节 ID 映射]
 JOINT_MAP = {
     "left": {
         "sh_pitch": 15, "sh_roll": 16, "sh_yaw": 17, 
@@ -67,9 +69,9 @@ JOINT_MAP = {
     }
 }
 
-class G1Arm5HybridTeleop:
+class G1Arm5IMUResetTeleop:
     def __init__(self):
-        print(f">>> [Arm5 Hybrid] 初始化 (网卡: {NETWORK_INTERFACE})...")
+        print(f">>> [Arm5 IMU Reset] 初始化 (网卡: {NETWORK_INTERFACE})...")
         ChannelFactoryInitialize(0, NETWORK_INTERFACE)
         self.pub = ChannelPublisher(TOPIC_ARM_SDK, LowCmd_Type)
         self.pub.Init()
@@ -94,13 +96,15 @@ class G1Arm5HybridTeleop:
 
         self.state = None 
         self.joy = JoyConHandlerDual()
-        self.target_q = {} 
+        
+        self.current_q = {} 
+        self.target_q = {}  
+
         self.running = False
         self.crc = CRC() 
 
-        # === 锁定状态管理 ===
-        self.reset_mode = {"left": False, "right": False}     # True: 锁定中, False: 控制中
-        self.btn_last_state = {"left": 0, "right": 0}
+        self.reset_mode = {"left": True, "right": True}      
+        self.btn_last_state = {"left": 0, "right": 0}         
 
         print(">>> 等待机器人状态数据...")
         wait_start = time.time()
@@ -121,15 +125,16 @@ class G1Arm5HybridTeleop:
             for side in ["left", "right", "waist"]:
                 for name, idx in JOINT_MAP[side].items():
                     if idx < len(self.state.motor_state):
-                        self.target_q[idx] = self.state.motor_state[idx].q
+                        init_val = self.state.motor_state[idx].q
+                        self.target_q[idx] = init_val
+                        self.current_q[idx] = init_val
 
-    def update_joint(self, joint_idx, delta=0.0, val=None):
+    def update_joint_target(self, joint_idx, delta=0.0, val=None):
         if joint_idx not in self.target_q: return
-        curr = self.target_q[joint_idx]
         if val is not None:
             self.target_q[joint_idx] = val
         else:
-            self.target_q[joint_idx] = curr + delta
+            self.target_q[joint_idx] += delta
 
     def get_button_state(self, side):
         try:
@@ -140,6 +145,12 @@ class G1Arm5HybridTeleop:
         except:
             pass
         return 0
+    
+    def move_towards(self, current, target, max_delta):
+        diff = target - current
+        if abs(diff) <= max_delta:
+            return target
+        return current + math.copysign(max_delta, diff)
 
     def process_joycon(self):
         inputs = self.joy.get_ik_states()
@@ -148,25 +159,35 @@ class G1Arm5HybridTeleop:
         for side in ["left", "right"]:
             mapping = JOINT_MAP[side]
             
-            # === 锁定/解锁 ===
             curr_btn = self.get_button_state(side)
             last_btn = self.btn_last_state[side]
             
+            # === 按键边缘检测 ===
             if curr_btn == 1 and last_btn == 0:
-                self.reset_mode[side] = not self.reset_mode[side] # 切换状态
-                mode_str = "🔒 锁定/复位" if self.reset_mode[side] else "🔓 解锁控制"
-                print(f"\n>>> [{side.upper()}] {mode_str}")
-            
-            self.btn_last_state[side] = curr_btn 
+                self.reset_mode[side] = not self.reset_mode[side]
+                
+                if self.reset_mode[side]:
+                    print(f"\n>>> [{side.upper()}] 🔒 锁定归位")
+                else:
+                    print(f"\n>>> [{side.upper()}] 🔓 激活控制")
+                    try:
+                        if side == "left" and self.joy.jc_l:
+                            self.joy.jc_l.joycon.reset_orientation()
+                        elif side == "right" and self.joy.jc_r:
+                            self.joy.jc_r.joycon.reset_orientation()
+                    except Exception as e:
+                        print(f"IMU 重置失败: {e}")
 
-            # === 锁定模式 ===
+            self.btn_last_state[side] = curr_btn
+
+            # === 锁定模式：复位 ===
             if self.reset_mode[side]:
                 for name, idx in mapping.items():
                     if name in RESET_POSE:
-                        self.update_joint(idx, val=RESET_POSE[name])
-                continue 
+                        self.update_joint_target(idx, val=RESET_POSE[name])
+                continue
 
-            # === 解锁模式 ===
+            # === 解锁模式：控制 ===
             data = inputs[side]
             if not data: continue
             
@@ -174,39 +195,54 @@ class G1Arm5HybridTeleop:
             sx = stick[0] if abs(stick[0]) > DEADZONE else 0
             sy = stick[1] if abs(stick[1]) > DEADZONE else 0
             
-            if sy and "sh_pitch" in mapping: self.update_joint(mapping["sh_pitch"], delta=-sy * JOINT_SPEED)
-            if sx and "sh_roll" in mapping:  self.update_joint(mapping["sh_roll"], delta=-sx * JOINT_SPEED)
+            if sy and "sh_pitch" in mapping: 
+                self.update_joint_target(mapping["sh_pitch"], delta=-sy * JOYSTICK_SENSITIVITY)
+            if sx and "sh_roll" in mapping:  
+                self.update_joint_target(mapping["sh_roll"], delta=-sx * JOYSTICK_SENSITIVITY)
 
             if "rot" in data:
                 rot = data["rot"]
                 if "sh_yaw" in mapping:
-                    self.update_joint(mapping["sh_yaw"], val=rot[2] * SH_YAW_SCALE)
+                    self.update_joint_target(mapping["sh_yaw"], val=rot[2] * SH_YAW_SCALE)
                 if "elbow" in mapping: 
-                    self.update_joint(mapping["elbow"], val=ELBOW_OFFSET + rot[1] * ELBOW_SCALE)
+                    self.update_joint_target(mapping["elbow"], val=ELBOW_OFFSET + rot[1] * ELBOW_SCALE)
+                
                 if "wrist_roll" in mapping:
                     s, o = (-WRIST_SCALE, WRIST_OFFSET_L) if side == "left" else (-WRIST_SCALE, WRIST_OFFSET_R)
-                    self.update_joint(mapping["wrist_roll"], val=o + rot[0] * s)
+                    self.update_joint_target(mapping["wrist_roll"], val=o + rot[0] * s)
 
     def run(self):
         self.running = True
         t = threading.Thread(target=self.print_loop)
         t.start()
 
-        print("\n================ G1 Arm5 混合控制 ================")
+        print("\n================ G1 Arm5 Joy-Con Teleoperation ================")
         print("1. [站立] 请先用遥控器让机器人站立。")
         print("2. [控制] 按 ZL/ZR 键切换【锁定归位】和【手动控制】状态。")
         print("3. [开始] 按 Enter 键激活控制。")
         print("=============================================================")
-        input("按 Enter 继续...")
-        print("🚀 控制已激活！初始状态为：解锁")
+        print("🚀 控制已激活！按 ZL/ZR 键解锁")
 
-        arm_indices = [idx for side in JOINT_MAP.values() for idx in side.values()]
+        all_controlled_joints = [idx for group in JOINT_MAP.values() for idx in group.values()]
+        
+        step_arm = SPEED_LIMIT_ARM * DT
+        step_wrist = SPEED_LIMIT_WRIST * DT
+        wrist_indices = [JOINT_MAP["left"]["wrist_roll"], JOINT_MAP["right"]["wrist_roll"]]
 
         while self.running:
             start_t = time.time()
             self.cmd.sn += 1
             
             self.process_joycon()
+
+            for idx in all_controlled_joints:
+                if idx in self.current_q and idx in self.target_q:
+                    max_step = step_wrist if idx in wrist_indices else step_arm
+                    self.current_q[idx] = self.move_towards(
+                        self.current_q[idx],
+                        self.target_q[idx],
+                        max_step
+                    )
 
             for i in range(35):
                 if i >= len(self.cmd.motor_cmd): break
@@ -217,9 +253,9 @@ class G1Arm5HybridTeleop:
                     m_cmd.kp = 0.0; m_cmd.kd = 0.0; m_cmd.tau = 0.0; m_cmd.dq = 0.0
                     continue
 
-                if i in arm_indices:
+                if i in all_controlled_joints:
                     m_cmd.mode = 0x01
-                    m_cmd.q = self.target_q.get(i, 0.0)
+                    m_cmd.q = self.current_q.get(i, 0.0)
                     m_cmd.dq = 0.0
                     m_cmd.tau = 0.0
                     m_cmd.kp = ARM_KP
@@ -231,19 +267,32 @@ class G1Arm5HybridTeleop:
             self.cmd.crc = self.crc.Crc(self.cmd)
             self.pub.Write(self.cmd)
 
-            sleep_t = DT - (time.time() - start_t)
+            elapsed = time.time() - start_t
+            sleep_t = DT - elapsed
             if sleep_t > 0:
                 time.sleep(sleep_t)
 
     def stop(self):
         self.running = False
-        print("\n⚠️ 正在退出...")
-        for _ in range(5):
-            if ARM_SDK_FLAG_INDEX < len(self.cmd.motor_cmd):
-                self.cmd.motor_cmd[ARM_SDK_FLAG_INDEX].q = 0.0
-                self.cmd.crc = self.crc.Crc(self.cmd)
-                self.pub.Write(self.cmd)
-            time.sleep(0.02)
+        print("\n⚠️ 正在退出... (软卸力)")
+        all_controlled_joints = [idx for group in JOINT_MAP.values() for idx in group.values()]
+        steps = 50
+        for k in range(steps):
+            ratio = 1.0 - (k / steps)
+            for i in range(35):
+                if i == ARM_SDK_FLAG_INDEX: continue
+                if i in all_controlled_joints:
+                    self.cmd.motor_cmd[i].kp = ARM_KP * ratio
+                    self.cmd.motor_cmd[i].kd = ARM_KD * ratio
+                    self.cmd.motor_cmd[i].q = self.current_q.get(i, 0.0)
+            self.cmd.crc = self.crc.Crc(self.cmd)
+            self.pub.Write(self.cmd)
+            time.sleep(0.03)
+
+        if ARM_SDK_FLAG_INDEX < len(self.cmd.motor_cmd):
+            self.cmd.motor_cmd[ARM_SDK_FLAG_INDEX].q = 0.0
+            self.cmd.crc = self.crc.Crc(self.cmd)
+            self.pub.Write(self.cmd)
         print("✅ 已释放控制权。")
 
     def print_loop(self):
@@ -251,11 +300,11 @@ class G1Arm5HybridTeleop:
             if self.state:
                 status_l = "LOCK" if self.reset_mode["left"] else "CTRL"
                 status_r = "LOCK" if self.reset_mode["right"] else "CTRL"
-                print(f"\r[L:{status_l} | R:{status_r}] SDK: ON", end="")
+                print(f"\r[L:{status_l} | R:{status_r}] SDK: ON (Auto-Zero)", end="")
             time.sleep(0.2)
 
 if __name__ == "__main__":
-    teleop = G1Arm5HybridTeleop()
+    teleop = G1Arm5IMUResetTeleop()
     def signal_handler(sig, frame):
         teleop.stop()
         sys.exit(0)
