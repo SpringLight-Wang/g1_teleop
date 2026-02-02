@@ -274,7 +274,7 @@ class G1Arm5IMUResetTeleop:
 
     def stop(self):
         self.running = False
-        print("\n⚠️ 正在退出... (软卸力)")
+        print("\n⚠️ 正在退出...")
         all_controlled_joints = [idx for group in JOINT_MAP.values() for idx in group.values()]
         steps = 50
         for k in range(steps):
