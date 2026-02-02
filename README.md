@@ -7,8 +7,6 @@
 
 这是一个针对 **Unitree G1 人形机器人** 的开源遥控操作项目。通过使用一对 **Nintendo Joy-Con 手柄**，可以直观地通过逆运动学 (IK) 和体感 (IMU) 控制机器人的双臂。🇨🇳 
 
-**核心特性：混合控制 (Hybrid Control)**
-本程序允许**使用 Python 脚本控制上半身动作，同时保留使用 Unitree 官方遥控器控制机器人行走的能力**。
 
 ![Demo](assets/demo_real.gif)
 
@@ -16,8 +14,8 @@
 ## ✨ 功能特性
 
 * **双臂 IK 控制**：使用 Joy-Con 摇杆控制手臂末端在空间中的位置。
-* **6-DoF 体感映射**：利用 Joy-Con 内置的 IMU 传感器，实时映射手腕的旋转姿态 (Pitch/Roll/Yaw)。
-* **腰部刚度锁定**：自动接管腰部关节 (ID 12, 13, 14)，保持其刚度，确保机器人底层运控算法能正常维持平衡和移动。
+* **G1 ARM5 体感映射**：利用 Joy-Con 内置的 IMU 传感器及摇杆，实时映射机械臂的姿态。
+* **腰部刚度锁定**：锁定腰部关节 (ID 12, 13, 14)，保持其刚度，确保机器人底层运控算法能正常维持平衡。
 * **安全机制**：
     * **实时锁定/解锁**：通过手柄 ZL/ZR 键一键切断控制输出，手臂自动归位。
     * **平滑启动**：程序启动时自动读取当前关节状态，防止暴冲。
@@ -95,7 +93,7 @@ pip3 install -e .
 ### 1. MuJoCo 仿真
 
 在mujoco仿真中测试遥操作。
-请先修改[g1_teleop_project/g1_dual_mujoco.py](g1_teleop_project/g1_dual_mujoco.py)第10行中的 MODEL_PATH 变量为您本地的 XML 路径
+请先修改[g1_teleop_project/g1_dual_mujoco.py](g1_teleop_project/g1_dual_mujoco.py)第10行中的 MODEL_PATH 变量为你本地的 XML 路径
 
 ```bash
 
@@ -115,12 +113,12 @@ python g1_dual_mujoco.py
 | **ZR 键 (右肩)** | **右臂模式切换** | 切换 **[🔒锁定/归位]** 与 **[🔓手动控制]** |
 | **Ctrl + C** | **安全退出** | 脚本会尝试让手臂缓慢归位并释放控制权 |
 
-### 2. 真机混合控制
+### 2. 实机控制
 
-该模式下，脚本控制上半身，可以使用官方遥控器控制机器人行走。
+该模式下，脚本控制上半身双机械臂，不影响官方机器人底层运控算法维持平衡。
 
 ```bash
-# 语法: python g1_dual_real.py [网卡名称]
+# python g1_dual_real.py [网卡名称]
 # 网卡名称通常为 eth0, enp3s0 等，请通过 ifconfig 确认连接机器人的网卡
 
 python g1_dual_real.py eth0
@@ -188,5 +186,6 @@ g1_teleop/
 ---
 
 *Created by [ Wang chunguang - Henan University of Technology 🇨🇳 ]*
+
 
 
